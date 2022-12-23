@@ -1,6 +1,7 @@
 # OpenShift Cheat Sheet
 
 ---
+
 ## Verify Health of a Cluster
 
 Display a column with status of each node:  
@@ -63,9 +64,9 @@ Note: Interpreting application logs requires specific knowledge of the applicati
 
 Get authentication token to authenticate OpenShift API requests:  
 `$ oc whoami -t`
----
 
 ---
+
 ## Storage
 
 View available storage classes:  
@@ -118,4 +119,105 @@ spec:
 ```
 
 Delete a persistent volume claim:  
-`$ oc delete pvc/<pvc_storage_name>
+`$ oc delete pvc/<pvc_storage_name>`
+
+---
+
+# Configuring ID Providers
+
+## HTPassword
+
+1. Create an HTPasswd authentication file, and add a user:  
+`$ htpasswd -c -B -b ~/path/to/file/<htpasswd_file_name> <user> <password>`
+
+2. Add another user to the HTPasswd authentication file:  
+`$ htpasswd -b ~/path/to/file/<htpasswd_file_name> <user2> <password2>`
+
+3. Log into OpenShift and create a secret that contains the HTPasswd users file:  
+`$ oc login -u kubeadmin -p ${kubeadmin_passwd} https://<url>:6443`  
+`$ oc create secret generic localusers --from-file htpasswd=~/path/to/file/<htpasswd_file_name> -n openshift-config`
+
+4. Assign a user the cluster-admin role:  
+`oc adm policy add-cluster-role-to-user cluster-admin <user>`
+
+5. Configure the customer resource file and update the cluster:  
+`$ oc get oauth cluster -o yaml > ~/path/to/file/oauth.yaml`  
+Edit the oauth.yaml file:  
+```
+spec:
+  identityProviders:
+  - htpasswd:
+      fileData:
+        name: localusers
+    mappingMethod: claim
+    name: myusers
+    type: HTPasswd
+```
+Apply custom resource defined:  
+`oc replace -f ~/path/to/file/oauth.yaml`
+
+Verify a user has cluster-admin role:  
+`$ oc login -u <user> -p <passwd>`
+`$ oc get nodes`
+
+List current users:  
+`$ oc get users`
+
+Display list of current identities:  
+`$ oc get identity`
+
+Create a new HTPasswd user:  
+`$ oc extract secret/localusers -n openshift-config --to ~/path/to/file/ --confirm /path/to/file/htpasswd`
+`$ htpasswd -b ~/path/to/file/htpasswd <user3> <passwd3>`
+`$ oc set data secret/localusers --from-file htpasswd=~/path/to/file/htpasswd -n openshift-config`
+
+Note: Use `--to -` to send the secret to STDOUT rather than save it to a file.  
+
+Create a new project:  
+`$ oc new-project <project_name>`
+
+Delete project:  
+`$ oc delete project <project_name>`
+
+Delete user from htpasswd file:  
+`$ htpasswd -D ~/path/to/file/htpasswd <user>`
+
+Delete identity resource for user:  
+`$ oc delete identity "myusers:<user>`
+
+Delete user resource for user:  
+`$ oc delete user <user>`
+
+Remove Identity Provider and clean up all users:  
+Remove ID provider from OAuth:  
+`$ oc edit oauth`  
+`spec: {}`  
+Delete localusers secret from openshift-config namespace:  
+`$ oc delete secret localuesrs -n openshift-config`  
+Delete all user resources:  
+`$ oc delete user --all`  
+Delete all identity resources:  
+`$ oc delete identity --all`  
+
+---
+
+## RBAC
+
+Add a cluster role to a user:  
+`$ oc adm policy add-cluster-role-to-user <cluster_role> <user>`
+
+Remove a cluster role from a user:  
+`$ oc adm policy remove-cluster-role-from-user <cluster_role> <user>`  
+
+Determine if a user can execute an action on a resource:  
+`$ oc adm policy who-can delete <user>`
+ 
+| Default roles | Description |
+| ------------- | ----------- |
+| admin | Manage all project resources, including granting access to other users to access the project |
+| basic-user | Read access to the project |
+| cluster-admin | Superuser access to the cluster resources. Perform any action on the cluster, and have full control of all projects. |
+| cluster-status | Can get cluster status information |
+| edit | Create, change, delete common app resources from the project e.g. services and deployments. Cannot act on management resources e.g. limit ranges and quotas, and can't manage access permissions on the project |
+| self-provisioner | Create new projects. This is a cluster role, not a project role |
+| view | View project resources, but can't modify project resources |
